@@ -1,160 +1,191 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+import re
+import requests
+import whois
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
+import wordninja
 
-# C extensions
-*.so
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# 1. IP주소 사용 여부 탐지 함수
+def IP_Address_URL(url):
+    ip_form = r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
+    #피싱사이트 =1, 정상 = 0
+    if re.search(ip_form, url):
+        return 7
+    else:
+        return 0
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+    
+# 2. 긴 URL 탐지 함수
+def Long_URL(url):
+    length = len(url)
+    if length < 54:
+        return 0  #피싱사이트면 1 정상이면 0
+    else:
+        return 1
+    
+# 3. 단축 URL 여부 탐지 함수
+def Short_URL(url):
+    try:
+        response = requests.get(url, allow_redirects=False, timeout=5)  # 리다이렉트 비활성화
+        if response.status_code == 301 or response.status_code == 302:
+            print("http")
+            return 1
+        return 0
+    except requests.exceptions.Timeout:
+        return 1  # 타임아웃 발생 시 1을 반환
+    except requests.exceptions.RequestException as e:
+        return 1  # 기타 오류 발생 시 1을 반환
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# 4. URL 안 http 프로토콜 사용 여부 탐지 함수
+def HTTP_Protocal_URL(url):
+    if url.startswith("https://"): #문자열 메소드 사용(특정 접두사 여부 검사)
+        return 0
+    else:
+        return 1
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
+# 5. 도메인 생성일자 1년 이내 여부 탐지 함수
+def In365_URL(url): # URL의 생성일자와 삭제일자를 가져옴
+    try:
+        domain = whois.whois(url)
 
-# Translations
-*.mo
-*.pot
+        creation_date = domain.creation_date #생성일자
+        expiration_date = domain.expiration_date #삭제일자
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+        # 1년 이내인지 확인
+        if creation_date is not None and expiration_date is not None:
+            maintained_date = (expiration_date - creation_date).days
+            
+            if maintained_date <= 366:
+                return 0 # 이내
+            else:
+                return 1 # 이상
+        else:
+            return 1  # 생성일자 또는 삭제일자가 없는 경우
+        
+    except Exception as e:
+        return 1  # 에러 발생 시 
+    
+# 6. 최근 생성 일자 여부 탐지 함수
+def Recent_URL(url):
+    try:
+        domain = whois.whois(url)
 
-# Flask stuff:
-instance/
-.webassets-cache
+        creation_date = domain.creation_date
 
-# Scrapy stuff:
-.scrapy
+        if creation_date is not None:            
+            nine_months_ago = datetime.now() - timedelta(days=270)
+            if creation_date >= nine_months_ago:
+                return 1  # 최근 9개월 이내
+            else:
+                return 0  # 9개월 이전
+        else:
+            return 1  # 생성일 정보 없음
 
-# Sphinx documentation
-docs/_build/
+    except Exception as e:
+        return 1  # 오류 발생
+    
+    
+# 7. 비표준포트 여부 탐지 함수
+def NonStandardPort_URL(url):
+    try:
+        # URL로부터 포트 추출
+        parsed_url = urlparse(url) #url 분석하여 포트번호 알아냄
+        scheme = parsed_url.scheme # 80 = http, 443 = https
 
-# PyBuilder
-.pybuilder/
-target/
+        if scheme == 'http' or scheme == 'https':
+            return 0  # 포트가 80 또는 443인 경우
+        else:
+            return 1 # 그 외
+        
+    except Exception as e:
+        # 오류가 발생한 경우 예외 처리
+        return 1
+    
+# 8. 영어를 비슷한 숫자로 바꿔 사용한 url 탐지 함수 여부 추출
+def SimilarWord_URL(url):
+    
+    #8-1. 숫자를 영어로 바꿔주는 함수
+    def normalize_word(word, replacements):
+        for find_char, replace_char in replacements.items():
+            word = word.replace(find_char, replace_char)
+        return word
 
-# Jupyter Notebook
-.ipynb_checkpoints
+    words = url
 
-# IPython
-profile_default/
-ipython_config.py
+    replacements = {
+        "0": "O",
+        "1": "I",
+        "2": "Z",
+        "3": "E",
+        "4": "A",
+        "5": "S",
+        "6": "G",
+        "7": "T",
+        "8": "B",
+        "9": "P"
+    }
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+    #기본 인덱스 (디폴트값: -1)
+    change_word_index = [-1] * 10
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
+    #링크에 숫자가 있으면 기본 인덱스 (디폴트값: -1) -> 인덱스
+    for char in "0123456789":
+        index = words.find(char)
+        if index != -1:
+            change_word_index[int(char)] = index
 
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
+    #링크 변환
+    change_word = normalize_word(words, replacements)
 
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#pdm.lock
-#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
-#   in version control.
-#   https://pdm.fming.dev/#use-with-ide
-.pdm.toml
+    #변환된 문장을 단어로 쪼개기
+    change_world_list = wordninja.split(change_word)
+    
+    index_sum = 0
+    worng_word_set = set() #중복을 방지하기 위해 집합(set)으로 설정
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
+    #만약 숫자->영어 변환된 단어가 있으면 의심되는 단어로 분류
+    for i, word in enumerate(change_world_list):
+        index_sum_store = index_sum
+        index_sum += len(word)
+        for ii in range(10):
+            if change_word_index[ii] != -1 and index_sum_store <= change_word_index[ii] < index_sum:
+                worng_word_set.add(words[index_sum_store : index_sum])
 
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
+    copied_worng_word_set = worng_word_set.copy()
+    result = copied_worng_word_set.pop() if copied_worng_word_set else "없음"
 
-# SageMath parsed files
-*.sage.py
+    #숫자->영어로 변경되지 않은 경우
+    if all(index == -1 for index in change_word_index):
+        return 0
+    #이상으로 추측되는 단어 중 하나라도 분리 된 경우
+    elif any(len(wordninja.split(w)) != 1 for w in worng_word_set if w):
+        return 7
+    #나머지
+    else:
+        return 0
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+    
+## 본문 시작
+URL = input("URL을 입력하세요 : ")
+sum = 0
 
-# Spyder project settings
-.spyderproject
-.spyproject
+# IP_Address_URL, SimilarWord_URL 경우는 피싱이 확실하므로 가중치를 7로 둠 (70%를 기준으로 했기 때문에 7로 설정)
+sum += IP_Address_URL(URL)
+sum += Long_URL(URL)
+sum += Short_URL(URL)
+sum += HTTP_Protocal_URL(URL)
+sum += In365_URL(URL)
+sum += Recent_URL(URL)
+sum += NonStandardPort_URL(URL)
+sum += SimilarWord_URL(URL)
 
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+if sum > 10:
+    sum = 10
+    
+per = sum * 10
+if per >= 70 :
+    print(f"입력하신 URL이 피싱사이트일 확률은 {per}%입니다. 이에 따라, 정상 URL이라고 예상할 수 있습니다.")
+else :
+    print(f"입력하신 URL이 피싱사이트일 확률은 {per}%입니다. 이에 따라, 정상 URL이라고 예상할 수 있습니다.")
