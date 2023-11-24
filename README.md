@@ -1,5 +1,5 @@
-# project_IDKA
-project I Don't Know Anything
+# project_Phishingsite_Detection
+
 
 ## Collaborators
 - [ChapterHY](https://github.com/ChapterHY)
