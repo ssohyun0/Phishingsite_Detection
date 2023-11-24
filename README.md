@@ -2,4 +2,4 @@
 project I Don't Know Anything
 
 ## Collaborators
-- [ChapterHY](https://github.com/ChapterHY)
+[![Contributor1](https://contrib.rocks/image?repo=ChapterHY/project_IDKA)](https://github.com/ChapterHY)
